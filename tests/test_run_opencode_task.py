@@ -89,17 +89,21 @@ class RunOpencodeTaskTests(unittest.TestCase):
         self.assertEqual(error.exception.code, 2)
         self.assertIn("--image-url", stderr.getvalue())
 
-    def test_normalize_image_url_converts_dropbox_to_direct_download(self):
+    def test_download_reference_image_requests_the_provided_non_dataset_url(self):
         module = load_module()
+        fake_response = io.BytesIO(b"png-bytes")
 
-        result = module.normalize_image_url(
-            "https://www.dropbox.com/scl/fi/file/image.png?rlkey=abc&st=def&dl=0"
-        )
-
-        self.assertEqual(
-            result,
-            "https://www.dropbox.com/scl/fi/file/image.png?rlkey=abc&st=def&dl=1",
-        )
+        with tempfile.TemporaryDirectory() as tmp:
+            output_path = Path(tmp) / "target.png"
+            with patch.object(module.urllib.request, "urlopen", return_value=fake_response) as urlopen:
+                result = module.download_reference_image(
+                    "https://example.com/reference.png",
+                    output_path,
+                )
+            self.assertEqual(result, output_path)
+            self.assertEqual(output_path.read_bytes(), b"png-bytes")
+            request = urlopen.call_args.args[0]
+            self.assertEqual(request.full_url, "https://example.com/reference.png")
 
     def test_format_event_logs_tool_part_details(self):
         module = load_module()

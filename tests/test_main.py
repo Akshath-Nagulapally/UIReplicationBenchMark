@@ -5,6 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+import image_sources
 import numpy as np
 import main
 from PIL import Image
@@ -79,29 +80,36 @@ class ImageComparisonTest(unittest.TestCase):
         self.assertFalse(run_dir.exists())
 
     def test_generate_imitation_runs_builds_once_and_runs_urls_in_order(self):
-        target_image_urls = ["https://example.com/one.png", "https://example.com/two.png"]
-        run_dirs = [Path(f"/tmp/run-{index}") for index in range(len(target_image_urls))]
+        target_image_urls = ["https://example.com/source"]
+        expanded_urls = ["https://example.com/one.png", "https://example.com/two.png"]
+        run_dirs = [Path(f"/tmp/run-{index}") for index in range(len(expanded_urls))]
 
         with patch.object(main, "build_docker_image") as build:
             with patch.object(main, "get_imitation_image", side_effect=run_dirs) as get_image:
-                result = main.generate_imitation_runs(target_image_urls, prompt=None, score=False)
+                with patch.object(main, "expand_image_source_urls", return_value=expanded_urls) as expand_urls:
+                    result = main.generate_imitation_runs(target_image_urls, prompt=None, score=False)
 
         self.assertEqual(result, run_dirs)
         build.assert_called_once_with()
+        expand_urls.assert_called_once_with(target_image_urls)
         self.assertEqual(
             get_image.call_args_list,
             [
-                unittest.mock.call(None, target_image_urls[0], build_image=False),
-                unittest.mock.call(None, target_image_urls[1], build_image=False),
+                unittest.mock.call(None, expanded_urls[0], build_image=False),
+                unittest.mock.call(None, expanded_urls[1], build_image=False),
             ],
         )
 
-    def test_normalize_dropbox_direct_link_forces_direct_download(self):
+    def test_generate_imitation_runs_rejects_empty_expanded_target_images(self):
+        with patch.object(main, "build_docker_image"):
+            with patch.object(main, "expand_image_source_urls", return_value=[]):
+                with self.assertRaisesRegex(RuntimeError, "No target images were found"):
+                    main.generate_imitation_runs(["https://huggingface.co/datasets/example/repo"], score=False)
+
+    def test_resolve_single_image_url_returns_unchanged_url_for_non_dataset_sources(self):
         self.assertEqual(
-            main._normalize_dropbox_direct_link(
-                "https://www.dropbox.com/scl/fi/file/image.png?rlkey=abc&st=def&dl=0"
-            ),
-            "https://www.dropbox.com/scl/fi/file/image.png?rlkey=abc&st=def&dl=1",
+            image_sources.resolve_single_image_url("https://example.com/image.png"),
+            "https://example.com/image.png",
         )
 
     def test_load_rgb_image_array_converts_images_to_normalized_rgb(self):
