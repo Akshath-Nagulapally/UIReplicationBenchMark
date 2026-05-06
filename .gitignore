@@ -204,8 +204,8 @@ cython_debug/
 tempCodeRunnerFile.py
 
 # Generated benchmark artifacts
-/runs/**
-!/runs/.gitkeep
+/runs/*
+!/runs/.gitignore
 /.docker-run.lock
 /index.html
 
