@@ -8,7 +8,6 @@ from unittest.mock import patch
 import image_sources
 import numpy as np
 import main
-from PIL import Image
 from visualize import scoring
 
 

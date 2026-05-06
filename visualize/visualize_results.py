@@ -7,7 +7,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from visualize.scoring import gpt4v_score, lpips_score, mse_score
+from visualize.scoring import gpt4v_score
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[1]
 RUNS_DIR = BENCHMARK_DIR / "runs"
@@ -17,8 +17,7 @@ FRONTEND_INDEX = FRONTEND_DIR / "index.html"
 IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".webp"}
 TARGET_IMAGE_NAME = "target.png"
 
-# Add another metric by importing it above and appending it here.
-SCORE_FUNCTIONS = (gpt4v_score, mse_score, lpips_score)
+SCORE_FUNCTIONS = (gpt4v_score,)
 _SCORE_CACHE = {}
 
 
@@ -33,6 +32,8 @@ class ExampleResult:
 
 def metric_name(score_function):
     name = score_function.__name__
+    if name == "gpt4v_score":
+        return "GPTVISION"
     if name.endswith("_score"):
         name = name[: -len("_score")]
     return name.upper()
