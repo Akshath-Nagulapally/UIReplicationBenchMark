@@ -205,7 +205,7 @@ tempCodeRunnerFile.py
 
 # Generated benchmark artifacts
 /runs/*
-!/runs/.gitkeep
+!/runs/.gitignore
 /.docker-run.lock
 /index.html
 

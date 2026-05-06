@@ -1,12 +1,12 @@
 import shutil
 import tempfile
 import unittest
-from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
 import image_sources
 import numpy as np
+from PIL import Image
 import main
 from visualize import scoring
 
@@ -163,58 +163,64 @@ class ImageComparisonTest(unittest.TestCase):
 
         self.assertEqual(result, 0.0)
 
-    def test_gpt4v_score_maps_pass_to_zero(self):
-        with patch.object(scoring, "_llm_as_judge_verdict", return_value="PASS") as verdict:
+    def test_gpt4v_score_returns_similarity_result_on_success(self):
+        judged = scoring.SimilarityJudgeOutput(
+            similarity=0.82,
+            reward_hacking=False,
+            reason="Very close overall match.",
+        )
+        with patch.object(scoring, "_judge_similarity", return_value=judged) as judge:
             result = scoring.gpt4v_score("first.png", "second.png")
 
-        self.assertEqual(result, 0.0)
-        self.assertEqual(verdict.call_args.kwargs["model"], scoring.OPENROUTER_GPT4V_DEFAULT_MODEL)
+        self.assertTrue(result.request_success)
+        self.assertEqual(result.value, 0.82)
+        self.assertEqual(result.raw_similarity, 0.82)
+        self.assertFalse(result.reward_hacking)
+        self.assertEqual(result.model, scoring.OPENROUTER_GPT4V_DEFAULT_MODEL)
+        self.assertEqual(judge.call_args.kwargs["model"], scoring.OPENROUTER_GPT4V_DEFAULT_MODEL)
 
-    def test_gpt4v_score_maps_fail_to_one(self):
-        with patch.object(scoring, "_llm_as_judge_verdict", return_value="FAIL"):
+    def test_gpt4v_score_forces_zero_for_reward_hacking(self):
+        judged = scoring.SimilarityJudgeOutput(
+            similarity=0.91,
+            reward_hacking=True,
+            reason="Superficial similarity without real structural fidelity.",
+        )
+        with patch.object(scoring, "_judge_similarity", return_value=judged):
             result = scoring.gpt4v_score("first.png", "second.png")
 
-        self.assertEqual(result, 1.0)
+        self.assertTrue(result.request_success)
+        self.assertEqual(result.value, 0.0)
+        self.assertEqual(result.raw_similarity, 0.91)
+        self.assertTrue(result.reward_hacking)
 
-    def test_openrouter_chat_completion_loads_api_key_from_env_file(self):
-        class FakeResponse(BytesIO):
-            def __enter__(self):
-                return self
+    def test_gpt4v_score_reports_request_failure_explicitly(self):
+        with patch.object(scoring, "_judge_similarity", side_effect=RuntimeError("grader unavailable")):
+            result = scoring.gpt4v_score("first.png", "second.png")
 
-            def __exit__(self, exc_type, exc, tb):
-                self.close()
+        self.assertFalse(result.request_success)
+        self.assertIsNone(result.value)
+        self.assertIn("grader unavailable", result.reason)
 
+    def test_similarity_judge_agent_loads_api_key_from_env_file(self):
         with tempfile.TemporaryDirectory() as tmp:
             env_path = Path(tmp) / ".env"
             env_path.write_text("OPENROUTER_API_KEY=test-key\n", encoding="utf-8")
 
+            scoring._similarity_judge_agent.cache_clear()
             with patch.dict(scoring.os.environ, {}, clear=True):
                 with patch.object(scoring, "ENV_FILE", env_path):
-                    with patch.object(scoring.urllib.request, "urlopen", return_value=FakeResponse(b'{"choices":[{"message":{"content":"PASS"}}]}')) as urlopen:
-                        response = scoring._openrouter_chat_completion({"model": "openai/gpt-4.1-mini", "messages": []})
+                    agent = scoring._similarity_judge_agent("openai/gpt-4.1-mini")
 
-        self.assertEqual(response["choices"][0]["message"]["content"], "PASS")
-        request = urlopen.call_args.args[0]
-        self.assertEqual(request.headers["Authorization"], "Bearer test-key")
+        self.assertEqual(agent.model._provider._client.api_key, "test-key")
 
-    def test_response_message_text_handles_content_parts(self):
-        response_payload = {
-            "choices": [
-                {
-                    "message": {
-                        "content": [
-                            {"type": "text", "text": "PASS"},
-                            {"type": "image_url", "image_url": {"url": "ignored"}},
-                        ]
-                    }
-                }
-            ]
-        }
+    def test_image_media_type_detects_png(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "candidate.png"
+            Image.new("RGB", (1, 1), (255, 255, 255)).save(image_path)
 
-        self.assertEqual(scoring._response_message_text(response_payload), "PASS")
+            result = scoring._image_media_type(image_path)
 
-    def test_extract_pass_fail_accepts_embedded_verdict(self):
-        self.assertEqual(scoring._extract_pass_fail("Result: fail."), "FAIL")
+        self.assertEqual(result, "image/png")
 
     def test_validate_run_outputs_accepts_flat_screenshot_files(self):
         with tempfile.TemporaryDirectory() as tmp:

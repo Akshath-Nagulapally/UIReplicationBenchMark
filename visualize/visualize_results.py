@@ -7,7 +7,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
-from visualize.scoring import gpt4v_score
+from visualize.scoring import ScoreResult, gpt4v_score
 
 BENCHMARK_DIR = Path(__file__).resolve().parents[1]
 RUNS_DIR = BENCHMARK_DIR / "runs"
@@ -26,14 +26,14 @@ class ExampleResult:
     name: str
     target_path: Path
     ai_generated_path: Path
-    scores: dict[str, float | str]
+    scores: dict[str, float | str | ScoreResult]
     average_rank: float | None = None
 
 
 def metric_name(score_function):
     name = score_function.__name__
     if name == "gpt4v_score":
-        return "GPTVISION"
+        return "SIMILARITY"
     if name.endswith("_score"):
         name = name[: -len("_score")]
     return name.upper()
@@ -118,12 +118,12 @@ def apply_average_ranks(results, metric_names):
 
     for name in metric_names:
         score_rows = [
-            (result, result.scores[name])
+            (result, numeric_score_value(result.scores[name]))
             for result in results
-            if isinstance(result.scores.get(name), int | float)
+            if isinstance(numeric_score_value(result.scores.get(name)), int | float)
         ]
 
-        for rank, (result, _score) in enumerate(sorted(score_rows, key=lambda row: row[1]), start=1):
+        for rank, (result, _score) in enumerate(sorted(score_rows, key=lambda row: row[1], reverse=True), start=1):
             rank_totals[result.name].append(rank)
 
     for result in results:
@@ -134,6 +134,14 @@ def apply_average_ranks(results, metric_names):
 
 def format_score(score):
     return f"{score:.6g}"
+
+
+def numeric_score_value(score):
+    if isinstance(score, ScoreResult):
+        return score.value
+    if isinstance(score, int | float):
+        return float(score)
+    return None
 
 
 def build_results_payload(runs_dir=None, score_functions=SCORE_FUNCTIONS):
@@ -158,8 +166,17 @@ def serialize_result(result):
         "averageRank": result.average_rank,
         "targetImageUrl": image_url_for_path(result.target_path),
         "candidateImageUrl": image_url_for_path(result.ai_generated_path),
-        "scores": result.scores,
+        "scores": {
+            name: serialize_score(score)
+            for name, score in result.scores.items()
+        },
     }
+
+
+def serialize_score(score):
+    if isinstance(score, ScoreResult):
+        return score.model_dump(mode="json")
+    return score
 
 
 def image_url_for_path(path):

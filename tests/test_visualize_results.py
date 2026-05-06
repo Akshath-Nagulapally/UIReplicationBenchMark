@@ -4,6 +4,7 @@ from pathlib import Path
 from uuid import uuid4
 
 from PIL import Image
+from visualize import scoring
 from visualize import visualize_results
 
 
@@ -74,6 +75,44 @@ class ExperimentDiscoveryTest(unittest.TestCase):
         self.assertEqual(payload["results"][0]["name"], "valid-run")
         self.assertEqual(payload["results"][0]["targetImageUrl"], f"/{valid_target.relative_to(visualize_results.BENCHMARK_DIR).as_posix()}")
         self.assertEqual(payload["results"][0]["candidateImageUrl"], f"/{valid_generated.relative_to(visualize_results.BENCHMARK_DIR).as_posix()}")
+
+    def test_build_results_payload_serializes_structured_score_results(self):
+        runs_dir = visualize_results.BENCHMARK_DIR / "runs" / f"test-structured-score-{uuid4().hex}"
+        try:
+            valid_run = runs_dir / "valid-run"
+            valid_target = valid_run / "target.png"
+            valid_generated = valid_run / "ai-generated.png"
+            self._write_image(valid_target)
+            self._write_image(valid_generated)
+
+            structured_score = scoring.ScoreResult(
+                value=0.75,
+                request_success=True,
+                reward_hacking=False,
+                raw_similarity=0.75,
+                reason="Close match.",
+                model="openai/gpt-4o",
+            )
+
+            with unittest.mock.patch.object(
+                visualize_results,
+                "metric_name",
+                return_value="TEST",
+            ):
+                payload = visualize_results.build_results_payload(
+                    runs_dir,
+                    score_functions=(lambda *_args: structured_score,),
+                )
+        finally:
+            if runs_dir.exists():
+                import shutil
+
+                shutil.rmtree(runs_dir)
+
+        score_payload = payload["results"][0]["scores"]["TEST"]
+        self.assertEqual(score_payload["value"], 0.75)
+        self.assertTrue(score_payload["request_success"])
+        self.assertFalse(score_payload["reward_hacking"])
 
     def _write_image(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)
