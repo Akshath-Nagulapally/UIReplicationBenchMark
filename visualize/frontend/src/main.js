@@ -88,7 +88,7 @@ function renderResults(payload) {
       <div class="panel-header">
         <div>
           <h2>Run Leaderboard</h2>
-          <p>${payload.results.length} runs sorted by GPT-vision score. Lower is better: <code>0</code> means PASS and <code>1</code> means FAIL.</p>
+          <p>${payload.results.length} runs sorted by similarity score. Higher is better: <code>1</code> is a near-exact match and <code>0</code> is unrelated or reward-hacked.</p>
         </div>
       </div>
       <div class="table-wrap">
@@ -118,6 +118,28 @@ function renderImageCell(src, alt) {
 }
 
 function renderScoreCell(score) {
+  if (score && typeof score === "object" && !Array.isArray(score)) {
+    if (score.request_success === false) {
+      const reason = score.reason ? ` title="${escapeAttribute(score.reason)}"` : "";
+      return `<td><span class="score-error"${reason}>request failed</span></td>`;
+    }
+
+    if (typeof score.value === "number" && Number.isFinite(score.value)) {
+      const detailParts = [];
+      if (typeof score.raw_similarity === "number" && Number.isFinite(score.raw_similarity)) {
+        detailParts.push(`raw ${score.raw_similarity.toFixed(3)}`);
+      }
+      if (score.reward_hacking === true) {
+        detailParts.push("reward hacking detected");
+      }
+      if (typeof score.reason === "string" && score.reason) {
+        detailParts.push(score.reason);
+      }
+      const title = detailParts.length ? ` title="${escapeAttribute(detailParts.join(" | "))}"` : "";
+      return `<td class="number"${title}>${score.value.toFixed(6)}</td>`;
+    }
+  }
+
   if (typeof score === "number" && Number.isFinite(score)) {
     return `<td class="number">${score.toFixed(6)}</td>`;
   }
