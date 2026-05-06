@@ -267,7 +267,7 @@ def main(argv=None):
     for run_dir in run_dirs:
         print(run_dir)
     if args.score:
-        print(REPO_ROOT / "index.html")
+        print(REPO_ROOT / "visualize" / "frontend" / "index.html")
     return 0
 
 

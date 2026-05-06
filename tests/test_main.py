@@ -145,15 +145,27 @@ class ImageComparisonTest(unittest.TestCase):
         self.assertEqual(result["lpips"], 0.25)
         self.assertAlmostEqual(result["reward"], 2.0 / 3.0)
 
-    def test_llm_as_judge_score_maps_pass_to_zero(self):
-        with patch.object(scoring, "_llm_as_judge_verdict", return_value="PASS"):
-            result = scoring.llm_as_judge_score("first.png", "second.png")
+    def test_mse_score_resizes_candidate_to_target_dimensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target.png"
+            candidate = Path(tmp) / "candidate.png"
+            Image.new("RGB", (4, 3), (10, 20, 30)).save(target)
+            Image.new("RGB", (2, 2), (10, 20, 30)).save(candidate)
+
+            result = scoring.mse_score(target, candidate)
 
         self.assertEqual(result, 0.0)
 
-    def test_llm_as_judge_score_maps_fail_to_one(self):
+    def test_gpt4v_score_maps_pass_to_zero(self):
+        with patch.object(scoring, "_llm_as_judge_verdict", return_value="PASS") as verdict:
+            result = scoring.gpt4v_score("first.png", "second.png")
+
+        self.assertEqual(result, 0.0)
+        self.assertEqual(verdict.call_args.kwargs["model"], scoring.OPENROUTER_GPT4V_DEFAULT_MODEL)
+
+    def test_gpt4v_score_maps_fail_to_one(self):
         with patch.object(scoring, "_llm_as_judge_verdict", return_value="FAIL"):
-            result = scoring.llm_as_judge_score("first.png", "second.png")
+            result = scoring.gpt4v_score("first.png", "second.png")
 
         self.assertEqual(result, 1.0)
 
