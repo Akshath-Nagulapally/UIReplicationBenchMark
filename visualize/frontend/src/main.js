@@ -64,14 +64,14 @@ function renderResults(payload) {
     .join("");
 
   const rows = payload.results
-    .map((result) => {
+    .map((result, index) => {
       const metricCells = payload.scoreNames
         .map((metricName) => renderScoreCell(result.scores[metricName]))
         .join("");
 
       return `
         <tr>
-          <td class="number">${renderNumeric(result.averageRank)}</td>
+          <td class="number">${escapeHtml(String(index + 1))}</td>
           <td>
             <strong>${escapeHtml(result.name)}</strong>
           </td>
@@ -88,14 +88,14 @@ function renderResults(payload) {
       <div class="panel-header">
         <div>
           <h2>Run Leaderboard</h2>
-          <p>${payload.results.length} runs sorted by average rank with GPT4V shown first.</p>
+          <p>${payload.results.length} runs sorted by GPT-vision score. Lower is better: <code>0</code> means PASS and <code>1</code> means FAIL.</p>
         </div>
       </div>
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
-              <th>Avg Rank</th>
+              <th>Rank</th>
               <th>Run</th>
               <th>Target</th>
               <th>Candidate</th>

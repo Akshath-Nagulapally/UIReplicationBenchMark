@@ -9,15 +9,13 @@ import sys
 import time
 from uuid import uuid4
 
+from image_sources import expand_image_source_urls, resolve_single_image_url
+
 
 IMAGE_NAME = "ui-replication-benchmark"
 CONTAINER_OUTPUT_DIR = "/workspace/output"
-DEFAULT_TARGET_IMAGE_URL = "https://www.dropbox.com/scl/fi/4uh2rfbkgxchm8sezhya9/OutlookUI.png?rlkey=m6duzw3os8yiwpce9hfjx7q27&st=y46nyzt2&dl=1"
-DEFAULT_TARGET_IMAGE_URLS = [
-    DEFAULT_TARGET_IMAGE_URL,
-    "https://www.dropbox.com/scl/fi/vai8f6m26bm6pfv5ezc3b/Anthropic.png?rlkey=ccun3ux59sf7roe0w8zcjh7j9&st=1sl32i5f&dl=1",
-    "https://www.dropbox.com/scl/fi/14yzfzu9kufrr01149hoe/OpenAI.png?rlkey=mcwjsxjtom9h40klyr0xmrgj3&st=sg4c71ab&dl=1",
-]
+DEFAULT_TARGET_IMAGE_URL = "https://huggingface.co/datasets/Akshath-Nag/UIReplicationBenchMark"
+DEFAULT_TARGET_IMAGE_URLS = [DEFAULT_TARGET_IMAGE_URL]
 REPO_ROOT = Path(__file__).resolve().parent
 RUNS_DIR = REPO_ROOT / "runs"
 DOCKERFILE = REPO_ROOT / "Dockerfile"
@@ -137,22 +135,9 @@ def _run_docker_container(run_command, container_name):
         raise
 
 
-def _normalize_dropbox_direct_link(url):
-    if "dropbox.com" not in url:
-        return url
-
-    from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
-
-    parsed = urlparse(url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.pop("raw", None)
-    query["dl"] = "1"
-    return urlunparse(parsed._replace(query=urlencode(query)))
-
-
 def get_imitation_image(prompt, target_image_url, *, build_image=True):
     _load_env_file()
-    normalized_target_image_url = _normalize_dropbox_direct_link(target_image_url or DEFAULT_TARGET_IMAGE_URL)
+    normalized_target_image_url = resolve_single_image_url(target_image_url or DEFAULT_TARGET_IMAGE_URL)
     _, runs_dir, _ = _repo_paths()
     run_dir = runs_dir / uuid4().hex
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -209,8 +194,11 @@ def _docker_env_args():
 
 def generate_imitation_runs(target_image_urls=DEFAULT_TARGET_IMAGE_URLS, prompt=None, *, score=True):
     build_docker_image()
+    expanded_target_image_urls = expand_image_source_urls(target_image_urls)
+    if not expanded_target_image_urls:
+        raise RuntimeError("No target images were found for the provided source URLs.")
     run_dirs = []
-    for target_image_url in target_image_urls:
+    for target_image_url in expanded_target_image_urls:
         run_dirs.append(get_imitation_image(prompt, target_image_url, build_image=False))
     if score:
         build_score_report()
@@ -240,7 +228,10 @@ def parse_args(argv):
         "--target-image-url",
         action="append",
         default=None,
-        help="Target image URL to replicate. May be provided multiple times. Defaults to the built-in target set.",
+        help=(
+            "Target image URL to replicate, or a Hugging Face dataset/folder URL to expand into images. "
+            "May be provided multiple times. Defaults to the built-in target set."
+        ),
     )
     parser.add_argument("--prompt", default=None, help="Prompt sent to OpenCode. Defaults to the harness prompt.")
     parser.add_argument(

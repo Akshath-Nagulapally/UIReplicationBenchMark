@@ -5,9 +5,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
-import numpy as np
 import main
-from PIL import Image
 from visualize import scoring
 
 
@@ -95,66 +93,6 @@ class ImageComparisonTest(unittest.TestCase):
                 unittest.mock.call(None, target_image_urls[1], build_image=False),
             ],
         )
-
-    def test_normalize_dropbox_direct_link_forces_direct_download(self):
-        self.assertEqual(
-            main._normalize_dropbox_direct_link(
-                "https://www.dropbox.com/scl/fi/file/image.png?rlkey=abc&st=def&dl=0"
-            ),
-            "https://www.dropbox.com/scl/fi/file/image.png?rlkey=abc&st=def&dl=1",
-        )
-
-    def test_load_rgb_image_array_converts_images_to_normalized_rgb(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            image_path = Path(tmp) / "reference.png"
-            Image.new("L", (1, 1), 128).save(image_path)
-
-            result = scoring._load_rgb_image_array(image_path)
-
-        self.assertEqual(result.shape, (1, 1, 3))
-        np.testing.assert_allclose(result, np.full((1, 1, 3), 128 / 255, dtype=np.float32))
-
-    def test_run_tests_returns_mse_and_reward_for_images(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            first = Path(tmp) / "first.png"
-            second = Path(tmp) / "second.jpg"
-            Image.new("RGB", (1, 1), (0, 0, 0)).save(first)
-            Image.new("RGB", (1, 1), (255, 255, 255)).save(second)
-
-            result = scoring.run_tests_mse(first, second, sensitivity_score=0.5)
-
-        self.assertEqual(result["mse"], 1.0)
-        self.assertAlmostEqual(result["reward"], 1.0 / 3.0)
-
-    def test_run_tests_lpips_reuses_loaded_image_arrays_for_learned_distance(self):
-        observed_shapes = []
-
-        def fake_lpips_distance(first, second):
-            observed_shapes.extend([first.shape, second.shape])
-            return 0.25
-
-        with tempfile.TemporaryDirectory() as tmp:
-            first = Path(tmp) / "first.png"
-            second = Path(tmp) / "second.jpg"
-            Image.new("RGB", (2, 1), (0, 0, 0)).save(first)
-            Image.new("RGB", (2, 1), (255, 255, 255)).save(second)
-
-            result = scoring.run_tests_lpips(first, second, sensitivity_score=0.5, distance_fn=fake_lpips_distance)
-
-        self.assertEqual(observed_shapes, [(1, 2, 3), (1, 2, 3)])
-        self.assertEqual(result["lpips"], 0.25)
-        self.assertAlmostEqual(result["reward"], 2.0 / 3.0)
-
-    def test_mse_score_resizes_candidate_to_target_dimensions(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            target = Path(tmp) / "target.png"
-            candidate = Path(tmp) / "candidate.png"
-            Image.new("RGB", (4, 3), (10, 20, 30)).save(target)
-            Image.new("RGB", (2, 2), (10, 20, 30)).save(candidate)
-
-            result = scoring.mse_score(target, candidate)
-
-        self.assertEqual(result, 0.0)
 
     def test_gpt4v_score_maps_pass_to_zero(self):
         with patch.object(scoring, "_llm_as_judge_verdict", return_value="PASS") as verdict:

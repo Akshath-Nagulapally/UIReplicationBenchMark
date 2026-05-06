@@ -17,7 +17,6 @@ from pathlib import Path
 from queue import Empty, Queue
 from threading import Event, Thread
 from typing import Any, Callable, Iterable
-from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 
 DEFAULT_OPENCODE_URL = "http://127.0.0.1:4096"
@@ -34,6 +33,7 @@ LOCAL_APP_URL = "http://localhost:5173"
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from image_sources import resolve_single_image_url
 from image_collection_utilities.screenshot import capture_screenshot
 
 
@@ -55,19 +55,8 @@ def image_data_url(image_path: Path) -> str:
     return f"data:{image_mime_type(image_path)};base64,{encoded}"
 
 
-def normalize_image_url(url: str) -> str:
-    if "dropbox.com" not in url:
-        return url
-
-    parsed = urlparse(url)
-    query = dict(parse_qsl(parsed.query, keep_blank_values=True))
-    query.pop("raw", None)
-    query["dl"] = "1"
-    return urlunparse(parsed._replace(query=urlencode(query)))
-
-
 def download_reference_image(image_url: str, destination_path: Path) -> Path:
-    normalized_url = normalize_image_url(image_url)
+    normalized_url = resolve_single_image_url(image_url)
     destination_path.parent.mkdir(parents=True, exist_ok=True)
     request = urllib.request.Request(normalized_url, headers={"User-Agent": "ui-replicate/1.0"})
     try:

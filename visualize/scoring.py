@@ -1,4 +1,3 @@
-from functools import lru_cache
 from pathlib import Path
 import base64
 import json
@@ -6,7 +5,6 @@ import os
 import urllib.error
 import urllib.request
 
-import numpy as np
 from PIL import Image
 
 
@@ -32,38 +30,6 @@ def _load_env_file(env_file=None):
         os.environ.setdefault(key, value)
 
 
-def _load_rgb_image_array(image_path, *, size=None):
-    with Image.open(image_path) as image:
-        if size is not None and image.size != size:
-            image = image.resize(size, Image.Resampling.BICUBIC)
-        return np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
-
-
-def _load_image_pair(image_one, image_two):
-    with Image.open(image_one) as first_image:
-        target_size = first_image.size
-        first = np.asarray(first_image.convert("RGB"), dtype=np.float32) / 255.0
-    second = _load_rgb_image_array(image_two, size=target_size)
-    return first, second
-
-
-def _reward_from_distance(distance, sensitivity_score):
-    if sensitivity_score <= 0:
-        raise ValueError("sensitivity_score must be positive")
-
-    return 1.0 / (1.0 + distance / sensitivity_score)
-
-
-def mse_score(image_one, image_two):
-    first, second = _load_image_pair(image_one, image_two)
-    return float(np.mean((first - second) ** 2))
-
-
-def lpips_score(image_one, image_two):
-    first, second = _load_image_pair(image_one, image_two)
-    return float(_lpips_distance(first, second))
-
-
 def gpt4v_score(image_one, image_two):
     verdict = _llm_as_judge_verdict(
         image_one,
@@ -71,22 +37,6 @@ def gpt4v_score(image_one, image_two):
         model=os.environ.get("OPENROUTER_GPT4V_MODEL", OPENROUTER_GPT4V_DEFAULT_MODEL),
     )
     return 0.0 if verdict == "PASS" else 1.0
-
-
-def run_tests_mse(image_one, image_two, sensitivity_score):
-    mse = mse_score(image_one, image_two)
-
-    return {"mse": mse, "reward": _reward_from_distance(mse, sensitivity_score)}
-
-
-def run_tests_lpips(image_one, image_two, sensitivity_score, distance_fn=None):
-    if distance_fn:
-        first, second = _load_image_pair(image_one, image_two)
-        lpips_distance = float(distance_fn(first, second))
-    else:
-        lpips_distance = lpips_score(image_one, image_two)
-
-    return {"lpips": lpips_distance, "reward": _reward_from_distance(lpips_distance, sensitivity_score)}
 
 
 def _llm_as_judge_verdict(image_one, image_two, *, model):
@@ -195,30 +145,3 @@ def _extract_pass_fail(text):
         if token in {"PASS", "FAIL"}:
             return token
     return None
-
-
-def _lpips_distance(first, second):
-    try:
-        import torch
-    except ImportError as error:
-        raise RuntimeError("run_tests_lpips requires the optional 'torch' and 'lpips' packages") from error
-
-    first_tensor = _lpips_tensor(first, torch)
-    second_tensor = _lpips_tensor(second, torch)
-
-    with torch.no_grad():
-        return _lpips_model()(first_tensor, second_tensor).item()
-
-
-def _lpips_tensor(image_array, torch_module):
-    return torch_module.from_numpy(image_array).permute(2, 0, 1).unsqueeze(0) * 2.0 - 1.0
-
-
-@lru_cache(maxsize=1)
-def _lpips_model():
-    try:
-        import lpips
-    except ImportError as error:
-        raise RuntimeError("run_tests_lpips requires the optional 'lpips' package") from error
-
-    return lpips.LPIPS(net="alex")
