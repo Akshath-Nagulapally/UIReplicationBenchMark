@@ -43,6 +43,7 @@ SHELL ["/bin/bash", "-c"]
 COPY harnesses/opencode/opencode.json /workspace/my-app/opencode.json
 COPY harnesses /workspace/harnesses
 COPY image_collection_utilities /workspace/image_collection_utilities
+COPY image_sources.py /workspace/image_sources.py
 
 RUN uv pip install --system playwright \
     && python -m playwright install chromium
