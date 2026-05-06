@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from uuid import uuid4
 
 from PIL import Image
 from visualize import visualize_results
@@ -39,6 +40,40 @@ class ExperimentDiscoveryTest(unittest.TestCase):
             result = visualize_results.discover_examples(runs_dir)
 
         self.assertEqual(result, [("legacy-run", valid_target, valid_generated)])
+
+    def test_build_results_payload_contains_frontend_friendly_urls_and_scores(self):
+        runs_dir = visualize_results.BENCHMARK_DIR / "runs" / f"test-payload-{uuid4().hex}"
+        try:
+            valid_run = runs_dir / "valid-run"
+            valid_target = valid_run / "target.png"
+            valid_generated = valid_run / "ai-generated.png"
+            self._write_image(valid_target)
+            self._write_image(valid_generated)
+
+            with unittest.mock.patch.object(
+                visualize_results,
+                "SCORE_FUNCTIONS",
+                (lambda *_args: 0.25,),
+            ):
+                with unittest.mock.patch.object(
+                    visualize_results,
+                    "metric_name",
+                    return_value="TEST",
+                ):
+                    payload = visualize_results.build_results_payload(
+                        runs_dir,
+                        score_functions=(lambda *_args: 0.25,),
+                    )
+        finally:
+            if runs_dir.exists():
+                import shutil
+
+                shutil.rmtree(runs_dir)
+
+        self.assertEqual(payload["scoreNames"], ["TEST"])
+        self.assertEqual(payload["results"][0]["name"], "valid-run")
+        self.assertEqual(payload["results"][0]["targetImageUrl"], f"/{valid_target.relative_to(visualize_results.BENCHMARK_DIR).as_posix()}")
+        self.assertEqual(payload["results"][0]["candidateImageUrl"], f"/{valid_generated.relative_to(visualize_results.BENCHMARK_DIR).as_posix()}")
 
     def _write_image(self, path):
         path.parent.mkdir(parents=True, exist_ok=True)

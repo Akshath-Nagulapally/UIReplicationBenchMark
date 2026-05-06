@@ -13,7 +13,7 @@ from PIL import Image
 BENCHMARK_DIR = Path(__file__).resolve().parents[1]
 ENV_FILE = BENCHMARK_DIR / ".env"
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_DEFAULT_MODEL = "openai/gpt-4.1-mini"
+OPENROUTER_GPT4V_DEFAULT_MODEL = "openai/gpt-4o"
 
 
 def _load_env_file(env_file=None):
@@ -32,18 +32,18 @@ def _load_env_file(env_file=None):
         os.environ.setdefault(key, value)
 
 
-def _load_rgb_image_array(image_path):
+def _load_rgb_image_array(image_path, *, size=None):
     with Image.open(image_path) as image:
+        if size is not None and image.size != size:
+            image = image.resize(size, Image.Resampling.BICUBIC)
         return np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
 
 
 def _load_image_pair(image_one, image_two):
-    first = _load_rgb_image_array(image_one)
-    second = _load_rgb_image_array(image_two)
-
-    if first.shape != second.shape:
-        raise ValueError(f"image shapes differ: {first.shape} != {second.shape}")
-
+    with Image.open(image_one) as first_image:
+        target_size = first_image.size
+        first = np.asarray(first_image.convert("RGB"), dtype=np.float32) / 255.0
+    second = _load_rgb_image_array(image_two, size=target_size)
     return first, second
 
 
@@ -64,8 +64,12 @@ def lpips_score(image_one, image_two):
     return float(_lpips_distance(first, second))
 
 
-def llm_as_judge_score(image_one, image_two):
-    verdict = _llm_as_judge_verdict(image_one, image_two)
+def gpt4v_score(image_one, image_two):
+    verdict = _llm_as_judge_verdict(
+        image_one,
+        image_two,
+        model=os.environ.get("OPENROUTER_GPT4V_MODEL", OPENROUTER_GPT4V_DEFAULT_MODEL),
+    )
     return 0.0 if verdict == "PASS" else 1.0
 
 
@@ -85,10 +89,10 @@ def run_tests_lpips(image_one, image_two, sensitivity_score, distance_fn=None):
     return {"lpips": lpips_distance, "reward": _reward_from_distance(lpips_distance, sensitivity_score)}
 
 
-def _llm_as_judge_verdict(image_one, image_two):
+def _llm_as_judge_verdict(image_one, image_two, *, model):
     response_payload = _openrouter_chat_completion(
         {
-            "model": os.environ.get("OPENROUTER_VISION_MODEL", OPENROUTER_DEFAULT_MODEL),
+            "model": model,
             "messages": [
                 {
                     "role": "user",
