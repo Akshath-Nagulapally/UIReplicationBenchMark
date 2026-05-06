@@ -5,6 +5,8 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+import image_sources
+import numpy as np
 import main
 from visualize import scoring
 
@@ -102,6 +104,64 @@ class ImageComparisonTest(unittest.TestCase):
             with patch.object(main, "expand_image_source_urls", return_value=[]):
                 with self.assertRaisesRegex(RuntimeError, "No target images were found"):
                     main.generate_imitation_runs(["https://huggingface.co/datasets/example/repo"], score=False)
+
+    def test_resolve_single_image_url_returns_unchanged_url_for_non_dataset_sources(self):
+        self.assertEqual(
+            image_sources.resolve_single_image_url("https://example.com/image.png"),
+            "https://example.com/image.png",
+        )
+
+    def test_load_rgb_image_array_converts_images_to_normalized_rgb(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            image_path = Path(tmp) / "reference.png"
+            Image.new("L", (1, 1), 128).save(image_path)
+
+            result = scoring._load_rgb_image_array(image_path)
+
+        self.assertEqual(result.shape, (1, 1, 3))
+        np.testing.assert_allclose(result, np.full((1, 1, 3), 128 / 255, dtype=np.float32))
+
+    def test_run_tests_returns_mse_and_reward_for_images(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "first.png"
+            second = Path(tmp) / "second.jpg"
+            Image.new("RGB", (1, 1), (0, 0, 0)).save(first)
+            Image.new("RGB", (1, 1), (255, 255, 255)).save(second)
+
+            result = scoring.run_tests_mse(first, second, sensitivity_score=0.5)
+
+        self.assertEqual(result["mse"], 1.0)
+        self.assertAlmostEqual(result["reward"], 1.0 / 3.0)
+
+    def test_run_tests_lpips_reuses_loaded_image_arrays_for_learned_distance(self):
+        observed_shapes = []
+
+        def fake_lpips_distance(first, second):
+            observed_shapes.extend([first.shape, second.shape])
+            return 0.25
+
+        with tempfile.TemporaryDirectory() as tmp:
+            first = Path(tmp) / "first.png"
+            second = Path(tmp) / "second.jpg"
+            Image.new("RGB", (2, 1), (0, 0, 0)).save(first)
+            Image.new("RGB", (2, 1), (255, 255, 255)).save(second)
+
+            result = scoring.run_tests_lpips(first, second, sensitivity_score=0.5, distance_fn=fake_lpips_distance)
+
+        self.assertEqual(observed_shapes, [(1, 2, 3), (1, 2, 3)])
+        self.assertEqual(result["lpips"], 0.25)
+        self.assertAlmostEqual(result["reward"], 2.0 / 3.0)
+
+    def test_mse_score_resizes_candidate_to_target_dimensions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            target = Path(tmp) / "target.png"
+            candidate = Path(tmp) / "candidate.png"
+            Image.new("RGB", (4, 3), (10, 20, 30)).save(target)
+            Image.new("RGB", (2, 2), (10, 20, 30)).save(candidate)
+
+            result = scoring.mse_score(target, candidate)
+
+        self.assertEqual(result, 0.0)
 
     def test_gpt4v_score_maps_pass_to_zero(self):
         with patch.object(scoring, "_llm_as_judge_verdict", return_value="PASS") as verdict:
